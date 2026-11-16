@@ -57,6 +57,13 @@ test('a report claiming another screen is ignored', () => {
   assert.equal(row('d-2').offline_cache, null);
 });
 
+test('a complete media cache is not ready without its player shell', () => {
+  deviceSocket.applyPlayerEvent('cache-status', 'd-1', {wanted:2,ready:2,shell_ready:false,offline_ready:true}, {});
+  assert.equal(JSON.parse(row('d-1').offline_cache).offline_ready,false);
+  deviceSocket.applyPlayerEvent('cache-status', 'd-1', {wanted:2,ready:2,shell_ready:true}, {});
+  assert.equal(JSON.parse(row('d-1').offline_cache).offline_ready,true);
+});
+
 test('an edge relays it last-wins, not as an ordered backlog', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mesh', 'player-termination.js'), 'utf8');
   assert.match(src, /COALESCE_KINDS = new Set\([^)]*'cache-status'/);

@@ -9,14 +9,15 @@ function validateDeployment(env = process.env) {
     NODE_ENV: 'production', MEDIA_REQUIRE_AUTH: 'true', DISABLE_REGISTRATION: 'true',
     ST_SKIP_DEP_PREFLIGHT: '1', PLUGINS_ENABLED: 'false', OTA_ENABLED: 'false',
     LIVE_VIDEO_ENABLED: 'false', TALK_ENABLED: 'false', SELF_HOSTED: 'true',
+    ST_SQLITE_DRIVER: 'node',
   };
   for (const [name, value] of Object.entries(required)) {
     if (env[name] !== value) throw new Error(`saas-staging requires ${name}=${value}`);
   }
-  for (const name of ['SITE_CACHE_FOR', 'UPDATER_URL', 'GO2RTC_URL', 'JWT_SECRET']) {
+  for (const name of ['SITE_CACHE_FOR', 'UPDATER_URL', 'GO2RTC_URL', 'JWT_SECRET', 'DB_PATH', 'UPLOADS_DIR', 'CERTS_DIR', 'PLUGINS_DIR']) {
     if (env[name]) throw new Error(`saas-staging does not permit ${name}`);
   }
-  if (!env.DATA_DIR || !env.DATA_DIR.startsWith('/')) throw new Error('saas-staging requires an absolute DATA_DIR');
+  if (env.DATA_DIR !== '/data') throw new Error('saas-staging requires DATA_DIR=/data');
   let url;
   try { url = new URL(env.APP_URL); } catch { throw new Error('saas-staging requires APP_URL'); }
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
@@ -25,6 +26,7 @@ function validateDeployment(env = process.env) {
   // Explicit configuration is mandatory: an empty list intentionally trusts no proxy.
   if (env.TRUSTED_PROXY_CIDRS === undefined) throw new Error('saas-staging requires explicit TRUSTED_PROXY_CIDRS');
   const entries = env.TRUSTED_PROXY_CIDRS.split(',').map(x => x.trim()).filter(Boolean);
+  if (!entries.length) throw new Error('saas-staging requires a trusted proxy IP');
   const net = require('node:net');
   for (const entry of entries) {
     const [ip, bits, extra] = entry.split('/');
@@ -36,6 +38,7 @@ function validateDeployment(env = process.env) {
   if (!env.JWT_SECRET_FILE) throw new Error('saas-staging requires JWT_SECRET_FILE');
   let secret;
   try { secret = fs.readFileSync(env.JWT_SECRET_FILE, 'utf8').trim(); } catch { throw new Error('Cannot read JWT_SECRET_FILE'); }
+  if (process.platform !== 'win32' && (fs.statSync(env.JWT_SECRET_FILE).mode & 0o077)) throw new Error('JWT_SECRET_FILE must not be readable by other users');
   if (secret.length < 48 || /^(changeme|set-a-long-random-string|secret)/i.test(secret)) throw new Error('JWT_SECRET_FILE must hold at least 48 non-placeholder characters');
 }
 module.exports = { validateDeployment };

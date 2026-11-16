@@ -55,6 +55,7 @@ COPY frontend/ /app/frontend/
 # without it). Small, and keeps the .glsl files the single source across server + player + Tizen.
 COPY shared/ /app/shared/
 COPY VERSION /app/VERSION
+COPY LICENSE NOTICE /app/
 # ⚠️ AND THE RELEASE NOTES, which the server reads from the repo ROOT at runtime
 # (server/lib/release-notes.js). Missing here, the API answers `current: null` and the "what's new"
 # panel is empty on every containerised install — while the unit tests pass, because they read the

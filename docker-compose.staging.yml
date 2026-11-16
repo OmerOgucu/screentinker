@@ -54,7 +54,7 @@ services:
       driver: json-file
       options: {max-size: 10m, max-file: "3"}
   proxy:
-    image: nginx:1.28-alpine
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
     user: "101:101"
     entrypoint: [nginx, -g, "daemon off;"]
     depends_on:

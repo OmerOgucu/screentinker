@@ -1276,6 +1276,7 @@ function reportOfflineCache() {
         ready_bytes: s.ready_bytes,
         partial: s.partial,
         partial_bytes: s.partial_bytes,
+        shell_ready: !!(s.shell && s.shell.ready),
         usage: s.usage,
         quota: s.quota,
         persisted: storagePersisted,

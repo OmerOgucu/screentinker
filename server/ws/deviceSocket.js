@@ -1949,6 +1949,10 @@ const EVENT_APPLIERS = Object.freeze({
       persisted: typeof data.persisted === 'boolean' ? data.persisted : null,
       error: typeof data.error === 'string' && /^[A-Za-z]{1,40}$/.test(data.error) ? data.error : null,
     };
+    if (typeof data.shell_ready === 'boolean') {
+      report.shell_ready = data.shell_ready;
+      report.offline_ready = data.shell_ready && report.wanted > 0 && report.ready === report.wanted && !report.error;
+    }
     try {
       db.prepare('UPDATE devices SET offline_cache = ?, offline_cache_at = ? WHERE id = ?')
         .run(JSON.stringify(report), Math.floor(Date.now() / 1000), deviceId);

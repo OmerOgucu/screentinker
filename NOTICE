@@ -1,0 +1,11 @@
+ScreenTinker
+Copyright (c) 2026 ScreenTinker
+Distributed under the MIT License; see LICENSE.
+
+This repository and its server image include independently licensed components.
+Generate the production npm SBOM and THIRD-PARTY-NOTICES.txt with the commands
+in LICENSE-NOTICES.md. Preserve the original notices with distributed artifacts.
+Base operating-system packages, FFmpeg, bundled fonts/WASM, and native players
+have separate licenses and are not relicensed by this notice. The server image
+retains Debian copyright files under /usr/share/doc. A license inventory does
+not replace fulfillment of source-distribution or other applicable obligations.

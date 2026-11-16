@@ -3095,6 +3095,7 @@ export default {
   'device.info.offline_cache_quota': 'Browser storage: {used} of {quota} used',
   'device.info.offline_cache_error': 'Last error: {name}',
   'device.info.offline_cache_not_persisted': 'The browser may clear this storage when space runs low',
+  'device.info.offline_shell_missing': 'Offline startup files are not ready. Keep this screen connected while they are restored.',
   'device.info.web_player': 'Web Player',
   'device.info.roku_player': 'Roku player',
   'device.info.brightsign_player': 'BrightSign',

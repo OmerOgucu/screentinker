@@ -456,8 +456,9 @@ function offlineCacheCard(device) {
   try { r = device && device.offline_cache ? JSON.parse(device.offline_cache) : null; } catch (e) { r = null; }
   if (!r || !(r.wanted >= 0)) return '';
   const size = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${Math.max(0, Math.round((b || 0) / 1048576))} MB`);
-  const short = r.ready < r.wanted || !!r.error;
+  const short = r.ready < r.wanted || !!r.error || r.shell_ready === false;
   const lines = [];
+  if (r.shell_ready === false) lines.push(t('device.info.offline_shell_missing'));
   if (r.partial > 0) lines.push(t('device.info.offline_cache_partial', { n: r.partial, size: size(r.partial_bytes) }));
   if (r.quota > 0) lines.push(t('device.info.offline_cache_quota', { used: size(r.usage), quota: size(r.quota) }));
   if (r.error) lines.push(t('device.info.offline_cache_error', { name: r.error }));
