@@ -16,7 +16,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY server/package.json server/package-lock.json ./
-RUN npm ci --omit=dev
+ARG NPM_CI_FLAGS=""
+RUN npm ci --omit=dev ${NPM_CI_FLAGS}
 
 # --- runtime ---
 # --- pi-deb: the native Raspberry Pi player this server offers at /download/pi (#634). It is not in
@@ -32,7 +33,7 @@ COPY shared/Transitions/ /build/shared/Transitions/
 COPY native/ /build/native/
 RUN rm -rf native/dist && native/packaging/linux/build-deb.sh
 
-FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS runtime
 # ffmpeg (ships ffprobe) powers video thumbnails + duration extraction at upload.
 # Without it videos still upload and play, but arrive with no thumbnail or duration.
 RUN apt-get update \
@@ -92,3 +93,12 @@ RUN useradd --system --no-create-home --shell /usr/sbin/nologin st-render
 VOLUME ["/data"]
 EXPOSE 3001
 CMD ["node", "server.js"]
+
+# Explicit target for the isolated SaaS staging profile. Default self-hosted image stays compatible.
+FROM runtime AS staging
+COPY docker/staging/entrypoint.sh /usr/local/bin/staging-entrypoint
+RUN mkdir -p /data && chown node:node /data && chmod 700 /data && chmod 555 /usr/local/bin/staging-entrypoint
+USER 1000:1000
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/staging-entrypoint"]
+
+FROM runtime AS self-hosted

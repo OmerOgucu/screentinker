@@ -6,6 +6,15 @@ node_modules/
 # the payload build with "cp: Too many levels of symbolic links".
 node_modules
 
+# Local labs and staging state must never be committed.
+.local/
+*.qcow2
+*.vmdk
+staging-state/
+backups/
+docker/staging/secrets/
+docker/staging/tls/
+
 # Databases: SQLite files, WAL/SHM sidecars, and any .db.<suffix> backups
 # (e.g. .db.devbak), anywhere in the tree - never commit a database.
 *.db

@@ -1,0 +1,102 @@
+name: ${STAGING_PROJECT_NAME:-screentinker-staging}
+services:
+  app:
+    image: screentinker-staging:${STAGING_TAG:?Set a reviewed local image tag}
+    build:
+      context: .
+      target: staging
+      args:
+        NPM_CI_FLAGS: --ignore-scripts
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    cpus: 2.0
+    mem_limit: 1536m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,uid=1000,gid=1000
+    environment:
+      DEPLOYMENT_PROFILE: saas-staging
+      NODE_ENV: production
+      SELF_HOSTED: "true"
+      DATA_DIR: /data
+      PORT: "3001"
+      APP_URL: https://${STAGING_HOSTNAME:?Set a staging hostname}
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      MEDIA_REQUIRE_AUTH: "true"
+      TRUSTED_PROXY_CIDRS: ${STAGING_PROXY_IP:-172.30.240.2}/32
+      ST_SKIP_DEP_PREFLIGHT: "1"
+      ST_SQLITE_DRIVER: node
+      DISABLE_REGISTRATION: "true"
+      DISABLE_HOMEPAGE: "true"
+      HIDE_BILLING: "true"
+      ST_HIDE_SPONSOR: "true"
+      OTA_ENABLED: "false"
+      PLUGINS_ENABLED: "false"
+      LIVE_VIDEO_ENABLED: "false"
+      TALK_ENABLED: "false"
+    secrets: [jwt_secret]
+    volumes:
+      - data:/data
+    networks:
+      backend:
+        ipv4_address: ${STAGING_APP_IP:-172.30.240.3}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 45s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+  proxy:
+    image: nginx:1.28-alpine
+    user: "101:101"
+    entrypoint: [nginx, -g, "daemon off;"]
+    depends_on:
+      app: {condition: service_healthy}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    cpus: 0.5
+    mem_limit: 128m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=101,gid=101
+    ports:
+      - "127.0.0.1:${STAGING_TLS_PORT:-8443}:8443"
+    volumes:
+      - type: bind
+        source: ${STAGING_STATE_DIR:?Run the staging configuration generator}/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${STAGING_STATE_DIR}/tls
+        target: /tls
+        read_only: true
+        bind: {create_host_path: false}
+    networks:
+      backend:
+        ipv4_address: ${STAGING_PROXY_IP:-172.30.240.2}
+      edge: {}
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${STAGING_SUBNET:-172.30.240.0/24}
+  edge: {}
+volumes:
+  data: {}
+secrets:
+  jwt_secret:
+    file: ${STAGING_STATE_DIR}/secrets/jwt_secret

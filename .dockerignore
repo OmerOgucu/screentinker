@@ -20,6 +20,14 @@ server/certs
 # secrets
 .env
 **/.env
+**/.env.*
+**/.local
+**/*.qcow2
+staging-state
+backups
+audit
+docker/staging/secrets
+docker/staging/tls
 
 # not needed at runtime (NOTE: scripts/ IS needed - database.js requires
 # scripts/migrate-multitenancy at boot - so it must stay in the image)
