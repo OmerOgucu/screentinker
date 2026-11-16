@@ -39,6 +39,13 @@ sudo docker compose --env-file .local/restore-drill/staging.env -f docker-compos
 
 Restore script'i çalışan container'ı veya dolu data volume'ünü reddeder; veri silmez. Saklanan image ID yerelde bulunmalı; eski tag/image'i önceden koruyun. Yeni hedefin `STAGING_TAG` değerini yedek image'iyle eşleştirin; farklı sürümle restore migration yapmayın.
 
+Hedef container'ın image ID'si de yedekteki ID ile tam eşleşmelidir. Gerekirse create işleminden önce eski image'i ayrı tag'e bağlayın ve yeni restore env'inde bu tag'i seçin:
+
+```sh
+sudo docker tag "$(sudo cat backups/20261116-001/image-id.txt)" screentinker-staging:restore-reviewed
+# Yeni restore staging.env dosyasında STAGING_TAG=restore-reviewed kullanın.
+```
+
 Sonra health, yönetici girişi, dosya hash'leri, cihaz/playlist sayıları, anonim medya 403, yetkili medya, `PRAGMA integrity_check` ve `foreign_key_check` kontrol edin. İlk VM'nin DB'si Docker testine taşınmadı; restore tatbikatı ayrı üretilen staging verisiyle yapıldı. Gerçek VPS/off-site restore denenmedi.
 
 ## Güncelleme ve rollback
