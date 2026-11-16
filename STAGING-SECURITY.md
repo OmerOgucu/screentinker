@@ -18,6 +18,8 @@ OTA/plugin/live-video/talk kapalı; updater/docker.sock/host-network/privileged 
 
 Device token DB'de hâlâ düz metindir; [migration planı](DEVICE-TOKEN-MIGRATION.md). HTTP iptali test edildi; mevcut açık socket'in tüm olay/oda akışlarının anlık iptali ayrı kapsamdır. Eski live/talk kanallarındaki URL tabanlı kimlik yolları staging'de kapalıdır; açılmadan önce yeniden ele alınmalı.
 
+Staging'de workspace'i bulunmayan eski özel medya kayıtları da kapalı kalır; bunlara bir kimlik bilgisi sunmak yeterli değildir. Self-hosted legacy davranışı korunur. Staging'e veri aktarılacaksa ownerless kayıtlar açık bir tenant eşlemesiyle incelenmelidir.
+
 Android indirme başlıkları derlenip JVM testleriyle kontrol edildi; gerçek decoder/network fallback ve cihaz cache'i test edilmedi. Tizen download adaptörü Node'da test edildi; native AVPlay doğrudan network fallback ve app-origin iframe/widget cookie davranışı doğrulanmadı. webOS server-hosted iframe kullanır; üçüncü taraf cookie/storage ve gerçek TV testi eksik. Desteklenmeyen bir client için özel medyayı kapatarak sistemi açmayın.
 
 Bağımlılık audit'i, tam penetrasyon veya OS image CVE taraması değildir. Secret/volume sızıntısı, fiziksel cihaz erişimi, tam cache eviction, uzun süreli yük ve tenant matrisi için ek test gerekir. Müşteri kabulü henüz uygun değildir.

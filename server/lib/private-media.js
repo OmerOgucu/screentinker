@@ -98,7 +98,7 @@ function guard(req,res,next){
  }
  res.setHeader('Cache-Control','private, no-store');res.vary('Cookie');res.vary('Authorization');
  if(!rows.length)return res.status(404).json({error:'Media not found'});
- if(!rows.some(c=>userCanAccess(req,c)||deviceCanAccess(req,c)||viewerCanAccess(req,c)))return res.status(403).json({error:'Media authorization required'});
+ if(!rows.some(c=>(process.env.DEPLOYMENT_PROFILE!=='saas-staging'||!!c.workspace_id)&&(userCanAccess(req,c)||deviceCanAccess(req,c)||viewerCanAccess(req,c))))return res.status(403).json({error:'Media authorization required'});
  next();
 }
 function sessionCookieMiddleware(req,res,next){
