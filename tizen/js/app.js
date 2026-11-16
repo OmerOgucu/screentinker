@@ -221,6 +221,7 @@
   var deviceId = get(LS.id);
   var deviceToken = get(LS.token);
   var serverUrl = get(LS.url);
+  if (window.STMediaAuth) window.STMediaAuth.configure(function () { return { serverUrl: serverUrl, deviceId: deviceId, deviceToken: deviceToken }; });
   var heartbeatTimer = null;
   var beatCount = 0;
   var authenticated = false; // #118: true only between device:registered and disconnect/auth-error

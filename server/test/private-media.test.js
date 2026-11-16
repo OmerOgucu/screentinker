@@ -50,6 +50,18 @@ test('an authenticated dashboard request renews its media lease',async()=>{const
 test('normal dashboard login issues an HttpOnly media cookie',async()=>{const r=await req('/api/auth/login',{method:'POST',body:{email:'a@private.test',password}});assert.equal(r.status,200);const c=r.headers.get('set-cookie');assert.ok(c);assert.match(c,/st_media_user=/);assert.match(c,/HttpOnly/);});
 test('explicit public share remains scoped to the display and can be revoked',async()=>{assert.ok(viewCookie,'share API returns a link');assert.equal((await req('/uploads/content/'+content.filepath,{headers:{Cookie:viewCookie}})).status,200);assert.equal((await req('/uploads/content/'+unused.filepath,{headers:{Cookie:viewCookie}})).status,403);await req('/api/devices/'+device.id+'/view',{method:'PUT',body:{enabled:false},token:A});assert.equal((await req('/uploads/content/'+content.filepath,{headers:{Cookie:viewCookie}})).status,403);});
 test('device token rotation invalidates an existing media lease',async()=>{db.prepare('UPDATE devices SET device_token = ? WHERE id = ?').run(crypto.randomBytes(32).toString('hex'),device.id);assert.equal((await req('/uploads/content/'+content.filepath,{headers:{Cookie:cookie}})).status,403);});
+
+test('uploaded fonts are private and retain workspace isolation',async()=>{
+ const u=db.prepare("SELECT id FROM users WHERE email='a@private.test'").get(),d=db.prepare('SELECT workspace_id FROM devices WHERE id=?').get(device.id);
+ const id=crypto.randomUUID(),name=id+'.woff2';fs.mkdirSync(path.join(tmp,'uploads/fonts'),{recursive:true});fs.writeFileSync(path.join(tmp,'uploads/fonts',name),'font fixture');
+ db.prepare('INSERT INTO custom_fonts (id,workspace_id,uploaded_by,name,css_family,filepath,format,file_size,created_at) VALUES (?,?,?,?,?,?,?,?,?)').run(id,d.workspace_id,u.id,'Fixture','Fixture',name,'woff2',12,Math.floor(Date.now()/1000));
+ const url='/fonts/u/'+name;assert.equal((await req(url)).status,403);assert.equal((await req(url,{token:B})).status,403);const r=await req(url,{token:A});assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'private, no-store');
+});
+test('widget renders and data do not become public by knowing their UUID',async()=>{
+ const r=await req('/api/widgets',{method:'POST',token:A,body:{name:'Private clock',widget_type:'clock',config:{}}});assert.equal(r.status,201);
+ const url='/api/widgets/'+r.data.id+'/render';assert.equal((await req(url)).status,403);assert.equal((await req(url,{token:B})).status,403);assert.equal((await req(url,{token:A})).status,200);
+ assert.equal((await req('/api/widgets/'+r.data.id+'/data.json')).status,403);
+});
 test('revoking the user session also revokes its media cookie',async()=>{const r=await req('/api/player/media-user-session',{method:'POST',token:A});const uc=r.headers.get('set-cookie').split(';')[0];db.prepare("UPDATE users SET token_version = token_version + 1 WHERE email = 'a@private.test'").run();assert.equal((await req('/uploads/content/'+content.filepath,{headers:{Cookie:uc}})).status,403);});
 
 test('changing forged forwarded addresses does not bypass the real login rate limit',async()=>{

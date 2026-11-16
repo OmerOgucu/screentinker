@@ -45,7 +45,7 @@ class ContentCache internal constructor(
 ) {
     constructor(context: Context) : this(
         File(context.filesDir, "content_cache").also { it.mkdirs() },
-        defaultClient()
+        com.remotedisplay.player.net.MediaAuthorization.client(context, defaultClient())
     )
 
     /**

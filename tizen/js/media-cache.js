@@ -332,6 +332,7 @@
         return new Promise(function (resolve) {
           var xhr = new XMLHttpRequest();
           xhr.open('GET', url, true);
+          if (root.STMediaAuth) root.STMediaAuth.apply(xhr, url);
           // Binary over responseText: the widget runtime on the shipped panels predates a reliable
           // arraybuffer path through this API, and x-user-defined keeps every byte addressable.
           xhr.overrideMimeType('text/plain; charset=x-user-defined');

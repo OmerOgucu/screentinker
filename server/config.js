@@ -35,6 +35,11 @@ const { parseSize } = require('./lib/parse-size');
 const JWT_PLACEHOLDERS = new Set(['set-a-long-random-string', 'changeme', 'change-me', 'secret', 'your-secret-here']);
 function resolveJwtSecret() {
   const fs = require('fs');
+  if (process.env.JWT_SECRET_FILE) {
+    const secret = fs.readFileSync(process.env.JWT_SECRET_FILE, 'utf8').trim();
+    if (secret.length < 32) throw new Error('JWT_SECRET_FILE is too short');
+    return secret;
+  }
   const env = process.env.JWT_SECRET;
   if (env) {
     if (JWT_PLACEHOLDERS.has(env.trim().toLowerCase())) {

@@ -31,10 +31,10 @@ class BundleCache internal constructor(
 ) {
     constructor(context: Context) : this(
         File(context.filesDir, "bundle_render").also { it.mkdirs() },
-        OkHttpClient.Builder()
+        com.remotedisplay.player.net.MediaAuthorization.client(context, OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .build(),
+            .build()),
     )
 
     companion object {

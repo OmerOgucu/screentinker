@@ -62,7 +62,7 @@ function viewerCanAccess(req,content){
    if(!r.device||content.workspace_id!==r.device.workspace_id)continue;
    const payload=require('../ws/deviceSocket').buildPlaylistPayload(r.device.id);
    let found=false;
-   const walk=(v,depth=0)=>{if(found||depth>20||v==null)return;if(typeof v==='string'){if(v.includes('/api/content/'+content.id+'/')||[content.filepath,content.thumbnail_path,content.subtitle_url].filter(Boolean).some(f=>v.includes('/uploads/content/'+f)))found=true;return;}if(typeof v!=='object')return;if(v.content_id===content.id)found=true;for(const value of Object.values(v))walk(value,depth+1);};
+   const walk=(v,depth=0)=>{if(found||depth>20||v==null)return;if(typeof v==='string'){if(v===content.id||v.includes('/api/content/'+content.id+'/')||v.includes('/api/widgets/'+content.id+'/render')||[content.filepath,content.thumbnail_path,content.subtitle_url].filter(Boolean).some(f=>v.includes('/uploads/content/'+f)||v.includes('/fonts/u/'+f)))found=true;return;}if(typeof v!=='object')return;if(v.content_id===content.id||v.widget_id===content.id)found=true;for(const value of Object.values(v))walk(value,depth+1);};
    walk(payload);if(found)return true;
   }catch{}
  }
@@ -83,10 +83,16 @@ function guard(req,res,next){
   let name;try{name=decodeURIComponent(req.path.slice('/uploads/content/'.length));}catch{return res.status(400).json({error:'Invalid media path'});}
   if(!name||path.basename(name)!==name||name.includes('\\')||name.startsWith('.'))return res.status(404).json({error:'Media not found'});
   rows=rowsForName(db,name);
+ }else if(req.path.startsWith('/fonts/u/')){
+  const name=req.path.slice('/fonts/u/'.length);
+  if(!name||path.basename(name)!==name||name.includes('\\'))return res.status(404).json({error:'Media not found'});
+  rows=db.prepare('SELECT * FROM custom_fonts WHERE filepath = ?').all(name);
  }else{
   const m=/^\/api\/content\/([^/]+)\/(file|thumbnail|bundle|variant|sssp3-fit)(?:\/|$)/.exec(req.path);
   const proxy=/^\/media\/proxy\/([^/]+)$/.exec(req.path);
-  if(m)rows=[db.prepare('SELECT * FROM content WHERE id = ?').get(m[1])].filter(Boolean);
+  const widget=/^\/api\/widgets\/([0-9a-f-]{36})\/(render|thumbnail|social\.json|social-media\/[^/]+|bi-image\.png|bi-token|data\.json|queue\.json|telemetry)$/.exec(req.path);
+  if(widget)rows=[db.prepare('SELECT * FROM widgets WHERE id = ?').get(widget[1])].filter(Boolean);
+  else if(m)rows=[db.prepare('SELECT * FROM content WHERE id = ?').get(m[1])].filter(Boolean);
   else if(proxy)rows=[db.prepare('SELECT c.* FROM content c JOIN playlist_items p ON p.content_id = c.id WHERE p.id = ?').get(proxy[1])].filter(Boolean);
   else return next();
  }

@@ -1796,6 +1796,7 @@ PlaylistPlayer.prototype.renderBundle = function (item, single) {
       if (typeof BundleStore !== 'undefined' && BundleStore.available()) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', plainSrc, true);
+        if (window.STMediaAuth) window.STMediaAuth.apply(xhr, plainSrc);
         xhr.timeout = 30000;
         xhr.onload = function () {
           if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {

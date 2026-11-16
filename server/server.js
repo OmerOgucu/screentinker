@@ -1,5 +1,6 @@
 // FIRST of all: 3.0 refuses to start below engines.node (lib/node-guard.js explains why).
 require('./lib/node-guard').guardNode();
+require('./lib/deployment-profile').validateDeployment();
 
 /*
  * 3.0 SITE CACHE MODE (docs/site-cache.md). With SITE_CACHE_FOR set, this process is not a server at
@@ -887,6 +888,10 @@ function allowWebosFraming(req, res) {
   }
 }
 
+app.get('/player/shell-manifest.json', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(require('./lib/player-shell-manifest').shellManifest(req.query.legacy === '1'));
+});
 app.get(['/player', '/player/', '/player/index.html'], (req, res) => {
   allowWebosFraming(req, res);
   sendPlayer(res, 'index.html');
@@ -2910,6 +2915,7 @@ app.use('/fonts/u', (req, res, next) => {
 }, express.static(config.fontsDir, {
   index: false,
   setHeaders: (res, filePath) => {
+    if (privateMedia.enabled()) res.setHeader('Cache-Control', 'private, no-store');
     const t = { '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' }[path.extname(filePath).toLowerCase()];
     if (t) res.setHeader('Content-Type', t);
   },

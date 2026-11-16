@@ -1,0 +1,16 @@
+'use strict';
+const {test,after}=require('node:test');
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {validateDeployment}=require('../lib/deployment-profile');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'st-profile-')),secret=path.join(dir,'secret');
+fs.writeFileSync(secret,require('node:crypto').randomBytes(48).toString('hex'));
+after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+const valid=()=>({DEPLOYMENT_PROFILE:'saas-staging',NODE_ENV:'production',MEDIA_REQUIRE_AUTH:'true',DISABLE_REGISTRATION:'true',ST_SKIP_DEP_PREFLIGHT:'1',PLUGINS_ENABLED:'false',OTA_ENABLED:'false',LIVE_VIDEO_ENABLED:'false',TALK_ENABLED:'false',SELF_HOSTED:'true',DATA_DIR:'/data',APP_URL:'https://staging.example.test',TRUSTED_PROXY_CIDRS:'172.30.240.2/32',JWT_SECRET_FILE:secret});
+test('legacy self-hosted defaults remain compatible',()=>assert.doesNotThrow(()=>validateDeployment({})));
+test('complete staging contract is accepted',()=>assert.doesNotThrow(()=>validateDeployment(valid())));
+test('misspelled profile is refused',()=>assert.throws(()=>validateDeployment({DEPLOYMENT_PROFILE:'saas-stagin'}),/PROFILE/));
+for(const key of ['NODE_ENV','MEDIA_REQUIRE_AUTH','DISABLE_REGISTRATION','ST_SKIP_DEP_PREFLIGHT','PLUGINS_ENABLED','OTA_ENABLED','LIVE_VIDEO_ENABLED','TALK_ENABLED','SELF_HOSTED'])test('staging fails closed on '+key,()=>assert.throws(()=>validateDeployment({...valid(),[key]:'wrong'}),new RegExp(key)));
+test('public HTTP and URLs containing credentials or paths are refused',()=>{for(const url of ['http://staging.test','https://user:pass@staging.test','https://staging.test/path'])assert.throws(()=>validateDeployment({...valid(),APP_URL:url}),/HTTPS/);});
+test('proxy must be explicit and host-specific',()=>{for(const v of [undefined,'true','172.30.240.0/24','0.0.0.0/0'])assert.throws(()=>validateDeployment({...valid(),TRUSTED_PROXY_CIDRS:v}),/proxy|PROXY/);assert.doesNotThrow(()=>validateDeployment({...valid(),TRUSTED_PROXY_CIDRS:''}));});
+test('missing, short or unreadable secrets cannot start staging',()=>{for(const p of [undefined,path.join(dir,'missing')])assert.throws(()=>validateDeployment({...valid(),JWT_SECRET_FILE:p}),/SECRET/);const short=path.join(dir,'short');fs.writeFileSync(short,'changeme');assert.throws(()=>validateDeployment({...valid(),JWT_SECRET_FILE:short}),/SECRET/);});
+test('dangerous optional services cannot bypass the staging contract',()=>{for(const k of ['SITE_CACHE_FOR','UPDATER_URL','GO2RTC_URL','JWT_SECRET'])assert.throws(()=>validateDeployment({...valid(),[k]:'enabled'}),new RegExp(k));});
