@@ -97,12 +97,6 @@ function shellNetworkFirst(request) {
       if (winner !== "timeout" && winner !== "failed") return winner;
       const cached = yield fromCache();
       if (cached) return cached;
-      if (winner === "timeout") {
-        try {
-          return yield fromNetwork;
-        } catch (e) {
-        }
-      }
     } catch (e) {
     } finally {
       if (timer) clearTimeout(timer);

@@ -136,8 +136,7 @@ self.addEventListener('fetch', (event) => {
   // a TV's network stack sits in the TCP handshake for a minute or more, and for all of that the
   // panel shows nothing — or its own "check network connection" page, if the browser gives up on
   // the navigation first. So a request that has not answered in SHELL_NETWORK_MS is served from the
-  // cache when there is a copy, and only a panel with no copy keeps waiting on the network, since
-  // for it the network is the only way to a picture. A cached copy is always a shell this panel
+  // cache when there is a copy, or an explicit reconnect page when there is none. A cached copy is always a shell this panel
   // ran before; a later load with the network back fetches the current one as before.
   if (url.pathname.startsWith('/player') || url.pathname === '/socket.io/socket.io.js') {
     event.respondWith(shellNetworkFirst(event.request));
@@ -189,10 +188,9 @@ async function shellNetworkFirst(request) {
     if (winner !== 'timeout' && winner !== 'failed') return winner;
     const cached = await fromCache();
     if (cached) return cached;
-    if (winner === 'timeout') {
-      // Nothing cached: the network is the only way to a picture, so wait it out after all.
-      try { return await fromNetwork; } catch (e) { /* fall through */ }
-    }
+    // A cache miss must also be bounded: a silent proxy can otherwise leave the
+    // screen blank for its full TCP timeout. A late success still warms the cache;
+    // the reconnect page retries after ten seconds.
   } catch (e) { /* fall through */ } finally { if (timer) clearTimeout(timer); fromNetwork.catch(() => {}); }
   return new Response('<!doctype html><title>Offline preparation incomplete</title><body style="background:#111827;color:white;font:20px sans-serif">Offline preparation incomplete. Reconnect to restore the player.<script>setTimeout(function(){location.reload()},10000)</script>', {
     status: 503,
