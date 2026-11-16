@@ -36,7 +36,7 @@
 // v33: the shell's network-first fetch gives up on a silent network after 8s and serves the cached
 // shell, so a panel that boots with its link up and its WAN down comes up from cache instead of
 // sitting dark through the TV's TCP timeout. Bumped so warm players take the new worker.
-const CACHE_NAME = 'rd-player-v34'; // credentialed same-origin private media; keep CONTENT_CACHE
+const CACHE_NAME = 'rd-player-v35'; // owned cache cleanup + verified shell preparation
 // Content lives in its own cache so the shell can be re-versioned (the activate handler deletes
 // every cache that is not CACHE_NAME) WITHOUT throwing away megabytes of media that are still
 // perfectly valid. Rolling the shell used to mean a player re-downloaded its entire playlist.
@@ -63,8 +63,8 @@ self.addEventListener('activate', (event) => {
       // CONTENT_CACHE is spared deliberately: it holds media, not code, and dropping it on every
       // shell version bump would make each deploy re-download the whole playlist — over a link
       // that may be exactly what is broken.
-      keys.filter(k => k !== CACHE_NAME && k !== CONTENT_CACHE && k !== SITE_CACHE_STORE).map(k => caches.delete(k))
-    )).then(() => self.clients.claim())
+      keys.filter(k => k.startsWith('rd-player-') && k !== CACHE_NAME).map(k => caches.delete(k))
+    )).then(() => repairShell()).then(() => self.clients.claim())
   );
 });
 
@@ -166,11 +166,16 @@ self.addEventListener('fetch', (event) => {
 const SHELL_NETWORK_MS = 8000;
 
 async function shellNetworkFirst(request) {
-  const fromCache = () => caches.match(request, { ignoreSearch: true });
-  const fromNetwork = fetch(request).then((response) => {
+  const fromCache = async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const hit = await cache.match(request, { ignoreSearch: true });
+    return await validShellResponse(hit, new URL(request.url).pathname) ? hit : null;
+  };
+  const fromNetwork = fetch(request).then(async (response) => {
+    if (!await validShellResponse(response, new URL(request.url).pathname)) throw new Error('Invalid player shell response');
     if (response.ok && response.type !== 'opaque') {
       const clone = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+      try { const cache = await caches.open(CACHE_NAME); await cache.put(request, clone); } catch (e) { /* quota: retain the live response */ }
     }
     return response;
   });
@@ -189,10 +194,10 @@ async function shellNetworkFirst(request) {
       try { return await fromNetwork; } catch (e) { /* fall through */ }
     }
   } catch (e) { /* fall through */ } finally { if (timer) clearTimeout(timer); fromNetwork.catch(() => {}); }
-  return new Response('Offline', {
+  return new Response('<!doctype html><title>Offline preparation incomplete</title><body style="background:#111827;color:white;font:20px sans-serif">Offline preparation incomplete. Reconnect to restore the player.<script>setTimeout(function(){location.reload()},10000)</script>', {
     status: 503,
     statusText: 'Service Unavailable',
-    headers: { 'Content-Type': 'text/plain' },
+    headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' },
   });
 }
 
@@ -214,8 +219,71 @@ async function shellNetworkFirst(request) {
 const prefetching = new Set();
 let prefetchChain = Promise.resolve();
 
+let shellRepair = null;
+function legacyShell() { return !!(self.location && self.location.href && new URL(self.location.href).pathname.indexOf('legacy') !== -1); }
+async function validShellResponse(response, pathname) {
+  if (!response || response.status !== 200 || response.type === 'opaque') return false;
+  const text = await response.clone().text();
+  if (!text.length) return false;
+  if (/\.js$/.test(pathname)) return !/^\s*</.test(text) && /javascript/.test(response.headers.get('content-type') || '');
+  if (/\.css$/.test(pathname)) return /text\/css/.test(response.headers.get('content-type') || '');
+  return text.indexOf('id="playerContainer"') !== -1;
+}
+async function inspectShell() {
+  const cache = await caches.open(CACHE_NAME);
+  const manifestUrl = '/player/shell-manifest.json' + (legacyShell() ? '?legacy=1' : '');
+  const response = await cache.match(manifestUrl);
+  let assets = [];
+  try { assets = (await response.json()).assets; } catch (e) { /* missing/corrupt manifest */ }
+  if (!Array.isArray(assets) || !assets.length) return { ready: false, wanted: 0, missing: ['manifest'] };
+  const missing = [];
+  for (const url of assets) {
+    const hit = await cache.match(url, { ignoreSearch: true });
+    if (!await validShellResponse(hit, new URL(url, self.location.origin).pathname)) missing.push(url);
+  }
+  return { ready: missing.length === 0, wanted: assets.length, missing };
+}
+function repairShell() {
+  if (shellRepair) return shellRepair;
+  shellRepair = (async () => {
+    const deadline = Date.now() + 12000;
+    const boundedFetch = (url, options) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Shell network timeout')), Math.max(1, Math.min(8000, deadline - Date.now())));
+      fetch(url, options).then(response => { clearTimeout(timer); resolve(response); }, err => { clearTimeout(timer); reject(err); });
+    });
+    const cache = await caches.open(CACHE_NAME);
+    const manifestUrl = '/player/shell-manifest.json' + (legacyShell() ? '?legacy=1' : '');
+    try {
+      const response = await boundedFetch(manifestUrl, { cache: 'no-store', credentials: 'same-origin' });
+      if (response.ok) {
+        const manifest = await response.clone().json();
+        if (Array.isArray(manifest.assets) && manifest.assets.length < 100) await cache.put(manifestUrl, response);
+      }
+    } catch (e) { /* retain the last known manifest offline */ }
+    let manifest;
+    try { manifest = await (await cache.match(manifestUrl)).json(); } catch (e) { return inspectShell(); }
+    for (const url of manifest.assets || []) {
+      if (Date.now() > deadline) break;
+      if (typeof url !== 'string' || !(url.startsWith('/player') || url === '/socket.io/socket.io.js') || url.startsWith('//')) continue;
+      const hit = await cache.match(url, { ignoreSearch: true });
+      if (await validShellResponse(hit, new URL(url, self.location.origin).pathname)) continue;
+      try {
+        const response = await boundedFetch(url, { cache: 'reload', credentials: 'same-origin' });
+        if (await validShellResponse(response, new URL(url, self.location.origin).pathname)) await cache.put(url, response);
+      } catch (e) { /* partial preparation stays explicitly not ready */ }
+    }
+    return inspectShell();
+  })().catch(() => ({ ready: false, wanted: 0, missing: ['repair failed'] })).then(result => { shellRepair = null; return result; });
+  return shellRepair;
+}
+
 self.addEventListener('message', (event) => {
   const data = event.data;
+  if (data && data.type === 'st-shell-prepare') {
+    const work = repairShell().then(result => { if (event.ports && event.ports[0]) event.ports[0].postMessage(result); });
+    event.waitUntil(work);
+    return;
+  }
   /*
    * The display was DELETED on the dashboard (device:unpaired {reason: 'deleted'}), so nothing it
    * cached belongs to a screen any more — except trigger media, which the page lists in `keep`.
@@ -232,7 +300,8 @@ self.addEventListener('message', (event) => {
   // behind the prefetch chain.
   if (data && data.type === 'st-cache-status' && Array.isArray(data.urls) && event.ports && event.ports[0]) {
     const port = event.ports[0];
-    cacheStatus(data.urls).then((s) => port.postMessage(s), (e) => port.postMessage({ error: String(e && e.message || e) }));
+    const work = cacheStatus(data.urls).then((s) => port.postMessage(s), () => port.postMessage({ error: 'Cache status unavailable' }));
+    if (event.waitUntil) event.waitUntil(work);
     return;
   }
   if (data && data.type === 'st-site-cache') {
@@ -317,6 +386,8 @@ async function cacheStatus(urls) {
       out.quota = Number(est.quota) || 0;
     }
   } catch (e) { /* not on every build */ }
+  out.shell = await inspectShell();
+  out.offline_ready = out.shell.ready && out.wanted > 0 && out.ready === out.wanted;
   return out;
 }
 

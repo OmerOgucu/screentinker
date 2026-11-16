@@ -135,6 +135,7 @@
        on the fetch. Auto-activation check fires after DOMContentLoaded;
        few-ms delay vs the inline trap is fine since errors before this
        loads are already captured in __debugLog by the inline trap above. -->
+  <script src="/player/log-redaction.js"></script>
   <script src="/player/debug-overlay.js" defer></script>
   <!-- BrightSign bridge. NOT deferred: the player asks it who this device is and whether a
        restart can be delegated to the host, and both questions are asked during boot. Off
@@ -1268,6 +1269,7 @@ function reportOfflineCache() {
       }
       const s = e.data;
       if (!s || typeof s !== "object" || s.error && typeof s.error === "string") return;
+      window.__stOfflineReady = { ready: s.offline_ready === true, shell: s.shell || null, media: { wanted: s.wanted, ready: s.ready }, checkedAt: Date.now() };
       const report = {
         wanted: s.wanted,
         ready: s.ready,
@@ -9498,8 +9500,19 @@ window.addEventListener("offline", () => {
 });
 if ("serviceWorker" in navigator && !VIEWER_MODE) {
   const serviceWorkerUrl = IS_LEGACY_PLAYER ? "/sw-legacy.js" : "/sw.js";
-  navigator.serviceWorker.register(serviceWorkerUrl).then((reg) => {
+  navigator.serviceWorker.register(serviceWorkerUrl, { scope: "/player" }).then((reg) => {
     console.log("Service Worker registered");
+    if (navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((old) => {
+      const worker = old.active || old.waiting;
+      if (new URL(old.scope).pathname === "/" && worker && ["/sw.js", "/sw-legacy.js", "/sw-admin.js"].indexOf(new URL(worker.scriptURL).pathname) !== -1) return old.unregister();
+    }))).catch(() => {
+    });
+    function prepareShell() {
+      const worker = reg.active;
+      if (worker && navigator.onLine !== false) worker.postMessage({ type: "st-shell-prepare" });
+    }
+    navigator.serviceWorker.ready.then(prepareShell);
+    setInterval(prepareShell, 3e4);
     try {
       if (navigator.storage && typeof navigator.storage.persist === "function") {
         navigator.storage.persist().then((ok) => {

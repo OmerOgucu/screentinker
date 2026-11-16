@@ -1283,7 +1283,12 @@ onSocket('access-changed', () => { if (isAuthenticated()) refreshCurrentUser().t
 
 // Register PWA service worker
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw-admin.js').catch(() => {});
+  navigator.serviceWorker.register('/sw-admin.js', { scope: '/app' }).then(() => {
+    return navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(reg => {
+      const worker = reg.active || reg.waiting;
+      if (new URL(reg.scope).pathname === '/' && worker && new URL(worker.scriptURL).pathname === '/sw-admin.js') return reg.unregister();
+    })));
+  }).catch(() => {});
 }
 
 // Mobile sidebar: open/close via hamburger, backdrop, nav tap, Escape

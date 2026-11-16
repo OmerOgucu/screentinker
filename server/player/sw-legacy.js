@@ -18,7 +18,7 @@ var __async = (__this, __arguments, generator) => {
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
-const CACHE_NAME = "rd-player-v34";
+const CACHE_NAME = "rd-player-v35";
 const CONTENT_CACHE = "rd-content-v1";
 const SITE_CACHE_STORE = "rd-site-cache-v1";
 const SITE_CACHE_KEY = "/__st_site_cache__";
@@ -33,8 +33,8 @@ self.addEventListener("activate", (event) => {
       // CONTENT_CACHE is spared deliberately: it holds media, not code, and dropping it on every
       // shell version bump would make each deploy re-download the whole playlist — over a link
       // that may be exactly what is broken.
-      keys.filter((k) => k !== CACHE_NAME && k !== CONTENT_CACHE && k !== SITE_CACHE_STORE).map((k) => caches.delete(k))
-    )).then(() => self.clients.claim())
+      keys.filter((k) => k.startsWith("rd-player-") && k !== CACHE_NAME).map((k) => caches.delete(k))
+    )).then(() => repairShell()).then(() => self.clients.claim())
   );
 });
 self.addEventListener("fetch", (event) => {
@@ -71,15 +71,23 @@ self.addEventListener("fetch", (event) => {
 const SHELL_NETWORK_MS = 8e3;
 function shellNetworkFirst(request) {
   return __async(this, null, function* () {
-    const fromCache = () => caches.match(request, { ignoreSearch: true });
-    const fromNetwork = fetch(request).then((response) => {
+    const fromCache = () => __async(null, null, function* () {
+      const cache = yield caches.open(CACHE_NAME);
+      const hit = yield cache.match(request, { ignoreSearch: true });
+      return (yield validShellResponse(hit, new URL(request.url).pathname)) ? hit : null;
+    });
+    const fromNetwork = fetch(request).then((response) => __async(null, null, function* () {
+      if (!(yield validShellResponse(response, new URL(request.url).pathname))) throw new Error("Invalid player shell response");
       if (response.ok && response.type !== "opaque") {
         const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {
-        });
+        try {
+          const cache = yield caches.open(CACHE_NAME);
+          yield cache.put(request, clone);
+        } catch (e) {
+        }
       }
       return response;
-    });
+    }));
     let timer = null;
     const timeout = new Promise((resolve) => {
       timer = setTimeout(() => resolve("timeout"), SHELL_NETWORK_MS);
@@ -101,17 +109,105 @@ function shellNetworkFirst(request) {
       fromNetwork.catch(() => {
       });
     }
-    return new Response("Offline", {
+    return new Response('<!doctype html><title>Offline preparation incomplete</title><body style="background:#111827;color:white;font:20px sans-serif">Offline preparation incomplete. Reconnect to restore the player.<script>setTimeout(function(){location.reload()},10000)<\/script>', {
       status: 503,
       statusText: "Service Unavailable",
-      headers: { "Content-Type": "text/plain" }
+      headers: { "Content-Type": "text/html", "Cache-Control": "no-store" }
     });
   });
 }
 const prefetching = /* @__PURE__ */ new Set();
 let prefetchChain = Promise.resolve();
+let shellRepair = null;
+function legacyShell() {
+  return !!(self.location && self.location.href && new URL(self.location.href).pathname.indexOf("legacy") !== -1);
+}
+function validShellResponse(response, pathname) {
+  return __async(this, null, function* () {
+    if (!response || response.status !== 200 || response.type === "opaque") return false;
+    const text = yield response.clone().text();
+    if (!text.length) return false;
+    if (/\.js$/.test(pathname)) return !/^\s*</.test(text) && /javascript/.test(response.headers.get("content-type") || "");
+    if (/\.css$/.test(pathname)) return /text\/css/.test(response.headers.get("content-type") || "");
+    return text.indexOf('id="playerContainer"') !== -1;
+  });
+}
+function inspectShell() {
+  return __async(this, null, function* () {
+    const cache = yield caches.open(CACHE_NAME);
+    const manifestUrl = "/player/shell-manifest.json" + (legacyShell() ? "?legacy=1" : "");
+    const response = yield cache.match(manifestUrl);
+    let assets = [];
+    try {
+      assets = (yield response.json()).assets;
+    } catch (e) {
+    }
+    if (!Array.isArray(assets) || !assets.length) return { ready: false, wanted: 0, missing: ["manifest"] };
+    const missing = [];
+    for (const url of assets) {
+      const hit = yield cache.match(url, { ignoreSearch: true });
+      if (!(yield validShellResponse(hit, new URL(url, self.location.origin).pathname))) missing.push(url);
+    }
+    return { ready: missing.length === 0, wanted: assets.length, missing };
+  });
+}
+function repairShell() {
+  if (shellRepair) return shellRepair;
+  shellRepair = (() => __async(null, null, function* () {
+    const deadline = Date.now() + 12e3;
+    const boundedFetch = (url, options) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Shell network timeout")), Math.max(1, Math.min(8e3, deadline - Date.now())));
+      fetch(url, options).then((response) => {
+        clearTimeout(timer);
+        resolve(response);
+      }, (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+    const cache = yield caches.open(CACHE_NAME);
+    const manifestUrl = "/player/shell-manifest.json" + (legacyShell() ? "?legacy=1" : "");
+    try {
+      const response = yield boundedFetch(manifestUrl, { cache: "no-store", credentials: "same-origin" });
+      if (response.ok) {
+        const manifest2 = yield response.clone().json();
+        if (Array.isArray(manifest2.assets) && manifest2.assets.length < 100) yield cache.put(manifestUrl, response);
+      }
+    } catch (e) {
+    }
+    let manifest;
+    try {
+      manifest = yield (yield cache.match(manifestUrl)).json();
+    } catch (e) {
+      return inspectShell();
+    }
+    for (const url of manifest.assets || []) {
+      if (Date.now() > deadline) break;
+      if (typeof url !== "string" || !(url.startsWith("/player") || url === "/socket.io/socket.io.js") || url.startsWith("//")) continue;
+      const hit = yield cache.match(url, { ignoreSearch: true });
+      if (yield validShellResponse(hit, new URL(url, self.location.origin).pathname)) continue;
+      try {
+        const response = yield boundedFetch(url, { cache: "reload", credentials: "same-origin" });
+        if (yield validShellResponse(response, new URL(url, self.location.origin).pathname)) yield cache.put(url, response);
+      } catch (e) {
+      }
+    }
+    return inspectShell();
+  }))().catch(() => ({ ready: false, wanted: 0, missing: ["repair failed"] })).then((result) => {
+    shellRepair = null;
+    return result;
+  });
+  return shellRepair;
+}
 self.addEventListener("message", (event) => {
   const data = event.data;
+  if (data && data.type === "st-shell-prepare") {
+    const work = repairShell().then((result) => {
+      if (event.ports && event.ports[0]) event.ports[0].postMessage(result);
+    });
+    event.waitUntil(work);
+    return;
+  }
   if (data && data.type === "st-device-deleted" && Array.isArray(data.keep)) {
     prefetchChain = prefetchChain.then(() => pruneToPlaylist(data.keep, data.scope)).catch(() => {
     });
@@ -119,7 +215,8 @@ self.addEventListener("message", (event) => {
   }
   if (data && data.type === "st-cache-status" && Array.isArray(data.urls) && event.ports && event.ports[0]) {
     const port = event.ports[0];
-    cacheStatus(data.urls).then((s) => port.postMessage(s), (e) => port.postMessage({ error: String(e && e.message || e) }));
+    const work = cacheStatus(data.urls).then((s) => port.postMessage(s), () => port.postMessage({ error: "Cache status unavailable" }));
+    if (event.waitUntil) event.waitUntil(work);
     return;
   }
   if (data && data.type === "st-site-cache") {
@@ -187,6 +284,8 @@ function cacheStatus(urls) {
       }
     } catch (e) {
     }
+    out.shell = yield inspectShell();
+    out.offline_ready = out.shell.ready && out.wanted > 0 && out.ready === out.wanted;
     return out;
   });
 }

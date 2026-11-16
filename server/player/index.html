@@ -135,6 +135,7 @@
        on the fetch. Auto-activation check fires after DOMContentLoaded;
        few-ms delay vs the inline trap is fine since errors before this
        loads are already captured in __debugLog by the inline trap above. -->
+  <script src="/player/log-redaction.js"></script>
   <script src="/player/debug-overlay.js" defer></script>
   <!-- BrightSign bridge. NOT deferred: the player asks it who this device is and whether a
        restart can be delegated to the host, and both questions are asked during boot. Off
@@ -1212,6 +1213,7 @@
           try { ch.port1.close(); } catch (err) {}
           const s = e.data;
           if (!s || typeof s !== 'object' || s.error && typeof s.error === 'string') return;
+          window.__stOfflineReady = { ready: s.offline_ready === true, shell: s.shell || null, media: { wanted: s.wanted, ready: s.ready }, checkedAt: Date.now() };
           const report = {
             wanted: s.wanted, ready: s.ready, ready_bytes: s.ready_bytes, partial: s.partial, partial_bytes: s.partial_bytes,
             usage: s.usage, quota: s.quota, persisted: storagePersisted,
@@ -11008,8 +11010,19 @@
       // deploy, so registration failed and the player ran with no worker at all. A rejected
       // registration is worse than a narrow one, and nothing about it is visible from here.
       const serviceWorkerUrl = IS_LEGACY_PLAYER ? '/sw-legacy.js' : '/sw.js';
-      navigator.serviceWorker.register(serviceWorkerUrl).then(reg => {
+      navigator.serviceWorker.register(serviceWorkerUrl, { scope: '/player' }).then(reg => {
         console.log('Service Worker registered');
+        // Migrate only this product's former root registration; never remove a foreign worker.
+        if (navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(old => {
+          const worker = old.active || old.waiting;
+          if (new URL(old.scope).pathname === '/' && worker && ['/sw.js', '/sw-legacy.js', '/sw-admin.js'].indexOf(new URL(worker.scriptURL).pathname) !== -1) return old.unregister();
+        }))).catch(() => {});
+        function prepareShell() {
+          const worker = reg.active;
+          if (worker && navigator.onLine !== false) worker.postMessage({ type: 'st-shell-prepare' });
+        }
+        navigator.serviceWorker.ready.then(prepareShell);
+        setInterval(prepareShell, 30000);
         /*
          * Ask for persistent storage, so the browser does not evict the offline media under storage
          * pressure ("best-effort" storage can be cleared without asking). A browser may grant it

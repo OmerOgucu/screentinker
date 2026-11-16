@@ -11,7 +11,7 @@
 //        (e.g. the web player, since this SW's scope is '/').
 // Changing this string is what makes the browser detect a new SW + run activate,
 // which deletes every cache key != CACHE below.
-const CACHE = 'rd-admin-v4';
+const CACHE = 'rd-admin-v5';
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll([
@@ -23,7 +23,7 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('rd-admin-') && k !== CACHE).map(k => caches.delete(k)))));
   self.clients.claim();
 });
 
