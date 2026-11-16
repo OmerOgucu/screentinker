@@ -56,6 +56,7 @@ module.exports = function viewRoutes({ sendPlayer }) {
     noStore(res);
     const r = viewAccess.resolve(db, req, by);
     if (!r.device) return res.status(r.status).type('html').send(UNAVAILABLE_HTML);
+    require('../lib/private-media').setViewCookie(req, res, by, r.device);
     // ?legacy=1 serves the ES5 build for old browsers, exactly as /player/legacy does for screens.
     const file = req.query.legacy === '1' ? 'legacy.html' : 'index.html';
     sendPlayer(res, file, { viewer: { payload_url: payloadPath, poll_ms: viewAccess.POLL_MS } });
@@ -65,6 +66,7 @@ module.exports = function viewRoutes({ sendPlayer }) {
     noStore(res);
     const r = viewAccess.resolve(db, req, by);
     if (!r.device) return res.status(r.status).json({ error: 'This view is no longer available', available: false });
+    require('../lib/private-media').setViewCookie(req, res, by, r.device);
     const { payload: body, rev } = payloadFor(r.device.id);
     // Visitor audio sync: enrich each now_playing entry with the language tracks offered for the item
     // currently on screen, so a visitor's phone can pick a language and play it in sync. Viewer-only:

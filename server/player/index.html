@@ -1015,7 +1015,7 @@
     function resolveVideoSrc(item) {
       const url = mediaUrl(item);
       if (!blobVideoEligible(item)) return Promise.resolve({ url, blob: false });
-      return fetch(url, { headers: { 'X-ST-Cache-Only': '1' }, credentials: 'omit' })
+      return fetch(url, { headers: { 'X-ST-Cache-Only': '1' }, credentials: 'same-origin' })
         .then((r) => (r.ok ? r.blob() : null))
         .then((b) => {
           if (!b || (BLOB_VIDEO_MAX_BYTES && b.size > BLOB_VIDEO_MAX_BYTES)) return { url, blob: false };
@@ -1086,7 +1086,7 @@
         const m = typeof id === 'string' && slideMediaIndex.get(id);
         if (!m) continue;
         try {
-          const r = await fetch(mediaUrl(m), { headers: { 'X-ST-Cache-Only': '1' }, credentials: 'omit' });
+          const r = await fetch(mediaUrl(m), { headers: { 'X-ST-Cache-Only': '1' }, credentials: 'same-origin' });
           if (r.ok) { files[id] = await r.blob(); any = true; }
         } catch (e) { /* not held: the slide keeps its network copy */ }
       }
@@ -1986,6 +1986,36 @@
     // is the only thing that flips this to true (or its 5s timeout, which keeps
     // playback muted).
     let userHasInteracted = false;
+    // Stable media URLs keep the offline cache intact. Only same-origin media requests
+    // carry a short-lived HttpOnly grant; device credentials never enter asset URLs.
+    let privateMediaReady = !(window.__playerConfig && window.__playerConfig.privateMedia);
+    let privateMediaPending = null;
+    let privateMediaPayload = null;
+    function refreshPrivateMedia() {
+      if (!(window.__playerConfig && window.__playerConfig.privateMedia)) return Promise.resolve();
+      if (privateMediaPending) return privateMediaPending;
+      if (!config.deviceId || !config.deviceToken) return Promise.reject(new Error('Device is not authenticated'));
+      privateMediaPending = fetch(config.serverUrl + '/api/player/media-session', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.deviceToken },
+        body: JSON.stringify({ device_id: config.deviceId })
+      }).then(function (r) {
+        if (!r.ok) throw new Error('Media session refused');
+        privateMediaReady = true;
+        const queued = privateMediaPayload;
+        privateMediaPayload = null;
+        if (queued) handlePlaylistUpdate(queued);
+      }).then(function () {
+        privateMediaPending = null;
+      }, function (err) {
+        privateMediaPending = null;
+        throw err;
+      });
+      return privateMediaPending;
+    }
+    setInterval(function () {
+      if (typeof socket !== 'undefined' && socket && socket.connected) refreshPrivateMedia().catch(function () {});
+    }, 120000);
     let advanceTimer = null;
 
     /*
@@ -3172,7 +3202,7 @@
         try { const cg = localStorage.getItem('st_group_sync' + LINK_SUFFIX); if (cg) applyGroupSync(JSON.parse(cg)); } catch (e) {}
       }
 
-      // Always show the tap overlay on cold load. Browser autoplay policy is
+      // Offer audio on cold load without covering an already cached broadcast. Autoplay is
       // per-document — a localStorage flag from a prior session does not grant
       // audio autoplay to a fresh page. The overlay auto-dismisses after 5s and
       // connects muted, so unattended kiosks still recover without a human tap.
@@ -3190,6 +3220,13 @@
           if (!isPlaying) showStatus(_t('connecting'));
           connect(config.serverUrl);
         };
+        // The cached playlist is already rendering underneath. Do not cover an
+        // unattended offline restart for five seconds merely to offer audio.
+        // Muting and the existing click-to-unmute controls still enforce autoplay.
+        if (config.paired && playlist.length > 0) {
+          tapOverlay.style.display = 'none';
+          tapOverlay.setAttribute('aria-hidden', 'true');
+        }
         document.body.appendChild(tapOverlay);
         applyBrand();   // #674: fills the heading above (text only)
 
@@ -3330,6 +3367,10 @@
       if (setup) setup.style.display = 'none';
       try {
         const token = localStorage.getItem('token'); // same-origin: shares the dashboard's Bearer token
+        if (window.__playerConfig && window.__playerConfig.privateMedia && token) {
+          const lease = await fetch('/api/player/media-user-session', { method: 'POST', credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } });
+          if (!lease.ok) return showPreviewError(lease.status);
+        }
         const res = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
         if (!res.ok) return showPreviewError(res.status);
         const payload = await res.json();
@@ -4116,6 +4157,7 @@
         config.deviceId = data.device_id;
         if (data.device_token) config.deviceToken = data.device_token;
         saveConfig(config);
+        refreshPrivateMedia().catch(function () { console.warn('[media] session unavailable; cached content retained'); });
         console.log('Registered:', data.device_id);
         flushOfflinePlays();   // #299: authenticated, so any offline backlog can be replayed
         if (typeof maybeFetchAudioGuide === 'function') maybeFetchAudioGuide();  // visitor audio sync: learn this screen's /listen QR (if view access is on)
@@ -6702,6 +6744,11 @@
     }
 
     function handlePlaylistUpdate(data) {
+      if (!VIEWER_MODE && !PREVIEW_MODE && !privateMediaReady) {
+        privateMediaPayload = data;
+        refreshPrivateMedia().catch(function () { console.warn('[media] waiting for an authorized media session'); });
+        return;
+      }
       // #473: a playlist update mid-session would restart the item under someone filling in a form.
       // Parked (latest wins) and applied by kioskRelease(). A suspension is not parked.
       if (data && data.suspended) {
@@ -9523,7 +9570,7 @@
             (reg, reason) => zoneBundleSkip(reg, { zone, div, items, index, item: a, advance }, reason));
         }
         host.appendChild(iframe);
-        fetch(bundleUrl, { credentials: 'omit' })
+        fetch(bundleUrl, { credentials: 'same-origin' })
           .then((r) => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status))))
           .then((html) => { if (iframe.isConnected !== false) iframe.srcdoc = html; })   // no isConnected on Chrome 53
           .catch(() => { if (iframe.isConnected !== false) iframe.src = bundleUrl; });

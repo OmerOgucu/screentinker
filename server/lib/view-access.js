@@ -92,8 +92,8 @@ function ipInCidrs(ip, cidrs) {
 
 /*
  * ⚠️ NOT req.ip. The app trusts loopback, private ranges and Cloudflare as proxies (server.js
- * 'trust proxy'), which is right for logs and rate limits, and wrong for an ACCESS decision: any host
- * on a private network could send X-Forwarded-For: 10.0.0.5 and be believed. Here X-Forwarded-For is
+ * 'trust proxy') on older deployments. A private peer alone is no evidence of a proxy: any host
+ * on that network could send X-Forwarded-For: 10.0.0.5. Here X-Forwarded-For is
  * honoured only through proxies the operator listed in VIEW_TRUSTED_PROXIES; otherwise the answer is
  * the TCP peer, full stop.
  */

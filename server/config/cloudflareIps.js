@@ -31,14 +31,24 @@ const cloudflareIpv6 = [
 
 const cloudflareIps = [...cloudflareIpv4, ...cloudflareIpv6];
 
-// What Express's `trust proxy` honors. 'loopback', 'linklocal', 'uniquelocal' keep local
-// dev and any LAN reverse proxy working without further config, and they are SAFE here
-// because a proxy APPENDS to X-Forwarded-For and Express walks that chain right-to-left,
-// so a client-supplied value can never end up as the resolved address.
-//
-// NOTE: this list is deliberately NOT the gate for CF-Connecting-IP. That header carries
-// no chain — a local proxy passes through whatever single value the client sent — so
-// services/activity.js gates it on `cloudflareIps` alone. See the comment there.
-const trustedProxies = ['loopback', 'linklocal', 'uniquelocal', ...cloudflareIps];
+// A private or loopback TCP peer is not proof of a reverse proxy. A direct LAN client
+// can supply X-Forwarded-For itself. Local proxies must be listed explicitly; an empty
+// value trusts nobody. Keep the published Cloudflare edges as the existing default.
+function parseTrustedProxies(raw = process.env.TRUSTED_PROXY_CIDRS) {
+  if (raw === undefined) return [...cloudflareIps];
+  const entries = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+  const net = require('net');
+  for (const entry of entries) {
+    const parts = entry.split('/');
+    const family = net.isIP(parts[0]);
+    const bits = parts[1] === undefined ? null : Number(parts[1]);
+    if (!family || parts.length > 2 || (bits !== null &&
+        (!/^\d+$/.test(parts[1]) || bits < 0 || bits > (family === 4 ? 32 : 128)))) {
+      throw new Error('TRUSTED_PROXY_CIDRS must contain only comma-separated IP addresses or CIDRs');
+    }
+  }
+  return entries;
+}
+const trustedProxies = parseTrustedProxies();
 
-module.exports = { cloudflareIpv4, cloudflareIpv6, cloudflareIps, trustedProxies };
+module.exports = { cloudflareIpv4, cloudflareIpv6, cloudflareIps, trustedProxies, parseTrustedProxies };

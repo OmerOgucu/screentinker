@@ -71,10 +71,8 @@ app.use(require('./middleware/send-file-compat').sendFileCompat);
 app.use(require('./middleware/mask-stream-credentials').maskStreamCredentialsMiddleware);
 const { trustedProxies } = require('./config/cloudflareIps');
 const { getClientIp } = require('./services/activity');
-// Trust loopback / link-local / unique-local (local dev, LAN reverse proxies)
-// and Cloudflare's published edge ranges. With this list, req.ip resolves to
-// the original client when fronted by Cloudflare; X-Forwarded-For from any
-// non-trusted source is ignored, so the value can't be spoofed.
+// Trust only published edge ranges or the operator's explicit proxy addresses.
+// Private / loopback clients are direct clients unless explicitly configured.
 app.set('trust proxy', trustedProxies);
 // Before parsers, CORS, limiters and routes so their rejections are recorded too.
 // Bandwidth served, per category / workspace / device, for the platform Traffic page (lib/traffic-ledger.js).
@@ -826,6 +824,7 @@ function sendPlayer(res, file, opts) {
       '  <script>window.__playerConfig = window.__playerConfig || {}; ' +
       'window.__playerConfig.debugReporting = ' + JSON.stringify(reportingEnabled) + ';' +
       ' window.__playerConfig.brand = ' + JSON.stringify(brand).replace(/</g, '\\u003c') + ';' +
+      ' window.__playerConfig.privateMedia = ' + JSON.stringify(require('./lib/private-media').enabled()) + ';' +
       // `<` escaped so nothing in the object can close the script element.
       (viewer ? ' window.__playerConfig.viewer = ' + JSON.stringify(viewer).replace(/</g, '\\u003c') + ';' + VIEWER_STORAGE_SHIM : '') +
       '</script>\n';
@@ -1683,6 +1682,7 @@ app.use('/unsubscribe',
 const mcpRoute = require('./routes/mcp');
 app.use('/mcp', rateLimit(60000, 120, mcpRoute.rateLimited), mcpRoute);
 
+app.use('/api', require('./lib/private-media').sessionCookieMiddleware);
 app.use('/api/auth', require('./routes/auth'));
 // Per-organization SSO configuration. Mounted under /api/organizations so the org id is the
 // route's own subject, which is what the org_owner/org_admin check keys on.
@@ -1877,7 +1877,21 @@ app.get('/api/devices/:id/screenshot', (req, res) => {
 // token; this verifies it and checks workspace membership. Anonymous players
 // (no token) still fall back to the playlist/widget reference gate. (#39)
 const { isReferencedForPlayers } = require('./lib/content-reference');
+const privateMedia = require('./lib/private-media');
+app.use(privateMedia.guard);
+app.post('/api/player/media-session', require('./middleware/deviceTokenAuth').deviceTokenAuth, (req, res) => {
+  if (!privateMedia.enabled()) return res.json({ required: false });
+  privateMedia.setDeviceCookie(req, res, req.device);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ required: true, expires_in: privateMedia.TTL });
+});
+app.post('/api/player/media-user-session', require('./middleware/auth').requireAuth, (req, res) => {
+  if (privateMedia.enabled()) privateMedia.setUserCookie(req, res, req.headers.authorization.slice(7));
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ required: privateMedia.enabled() });
+});
 function requesterCanAccessContent(req, content) {
+  if (privateMedia.enabled() && (privateMedia.userCanAccess(req, content) || privateMedia.deviceCanAccess(req, content) || privateMedia.viewerCanAccess(req, content))) return true;
   try {
     const m = (req.headers.authorization || '').match(/^Bearer (.+)$/);
     if (!m) return false;
@@ -2842,6 +2856,11 @@ app.post('/api/device/audio-guide', (req, res) => {
 //     bytes instead of being rendered.
 const { INLINE_SAFE_EXTS } = require('./lib/upload-sniff');
 function hardenUploadResponse(res, filename) {
+  if (privateMedia.enabled()) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.vary('Cookie');
+    res.vary('Authorization');
+  }
   res.setHeader('Content-Security-Policy', 'sandbox');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const ext = path.extname(String(filename || '')).toLowerCase();

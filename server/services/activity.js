@@ -4,13 +4,11 @@ const { cloudflareIps } = require('../config/cloudflareIps');
 const forwardedClientIp = require('../lib/forwarded-client-ip');
 
 // Peer gate for CF-Connecting-IP: ONLY Cloudflare's published edge ranges, deliberately
-// NOT the loopback/linklocal/uniquelocal entries that `trust proxy` also carries.
+// independent of any additional peers configured through `trust proxy`.
 //
-// Those entries are right for X-Forwarded-For, because a local reverse proxy APPENDS to
-// XFF and Express then walks the chain right-to-left, so a client-supplied value cannot
-// end up as the resolved address. CF-Connecting-IP has no chain: nginx passes through
-// whatever single value the client sent. Treating a loopback peer as evidence that the
-// request came through Cloudflare therefore means trusting the client.
+// Local reverse proxies must now be explicitly configured in TRUSTED_PROXY_CIDRS.
+// CF-Connecting-IP has no chain: a local proxy can pass through a client-supplied
+// value. Trusting it requires a Cloudflare TCP peer, independently of that setting.
 //
 // This is also the portable behaviour. Most self-hosted installs do NOT sit behind
 // Cloudflare; for them this header is now simply ignored and attribution comes from

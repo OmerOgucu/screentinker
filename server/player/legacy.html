@@ -1115,7 +1115,7 @@ function blobVideoEligible(item) {
 function resolveVideoSrc(item) {
   const url = mediaUrl(item);
   if (!blobVideoEligible(item)) return Promise.resolve({ url, blob: false });
-  return fetch(url, { headers: { "X-ST-Cache-Only": "1" }, credentials: "omit" }).then((r) => r.ok ? r.blob() : null).then((b) => {
+  return fetch(url, { headers: { "X-ST-Cache-Only": "1" }, credentials: "same-origin" }).then((r) => r.ok ? r.blob() : null).then((b) => {
     if (!b || BLOB_VIDEO_MAX_BYTES && b.size > BLOB_VIDEO_MAX_BYTES) return { url, blob: false };
     return { url: URL.createObjectURL(b), blob: true };
   }).catch(() => ({ url, blob: false }));
@@ -1166,7 +1166,7 @@ function answerSlideMedia(win, ids) {
       const m = typeof id === "string" && slideMediaIndex.get(id);
       if (!m) continue;
       try {
-        const r = yield fetch(mediaUrl(m), { headers: { "X-ST-Cache-Only": "1" }, credentials: "omit" });
+        const r = yield fetch(mediaUrl(m), { headers: { "X-ST-Cache-Only": "1" }, credentials: "same-origin" });
         if (r.ok) {
           files[id] = yield r.blob();
           any = true;
@@ -1922,6 +1922,36 @@ let streamTimer = null;
 let layout = null;
 let zones = {};
 let userHasInteracted = false;
+let privateMediaReady = !(window.__playerConfig && window.__playerConfig.privateMedia);
+let privateMediaPending = null;
+let privateMediaPayload = null;
+function refreshPrivateMedia() {
+  if (!(window.__playerConfig && window.__playerConfig.privateMedia)) return Promise.resolve();
+  if (privateMediaPending) return privateMediaPending;
+  if (!config.deviceId || !config.deviceToken) return Promise.reject(new Error("Device is not authenticated"));
+  privateMediaPending = fetch(config.serverUrl + "/api/player/media-session", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.deviceToken },
+    body: JSON.stringify({ device_id: config.deviceId })
+  }).then(function(r) {
+    if (!r.ok) throw new Error("Media session refused");
+    privateMediaReady = true;
+    const queued = privateMediaPayload;
+    privateMediaPayload = null;
+    if (queued) handlePlaylistUpdate(queued);
+  }).then(function() {
+    privateMediaPending = null;
+  }, function(err) {
+    privateMediaPending = null;
+    throw err;
+  });
+  return privateMediaPending;
+}
+setInterval(function() {
+  if (typeof socket !== "undefined" && socket && socket.connected) refreshPrivateMedia().catch(function() {
+  });
+}, 12e4);
 let advanceTimer = null;
 function scheduleAdvance(fn, ms) {
   if (advanceTimer) clearTimeout(advanceTimer);
@@ -2795,6 +2825,10 @@ if (VIEWER_MODE) {
         if (!isPlaying) showStatus(_t("connecting"));
         connect(config.serverUrl);
       };
+      if (config.paired && playlist.length > 0) {
+        tapOverlay.style.display = "none";
+        tapOverlay.setAttribute("aria-hidden", "true");
+      }
       document.body.appendChild(tapOverlay);
       applyBrand();
       setTimeout(() => {
@@ -2880,6 +2914,10 @@ function renderPreviewFromUrl(url) {
     if (setup) setup.style.display = "none";
     try {
       const token = localStorage.getItem("token");
+      if (window.__playerConfig && window.__playerConfig.privateMedia && token) {
+        const lease = yield fetch("/api/player/media-user-session", { method: "POST", credentials: "same-origin", headers: { Authorization: "Bearer " + token } });
+        if (!lease.ok) return showPreviewError(lease.status);
+      }
       const res = yield fetch(url, { headers: token ? { Authorization: "Bearer " + token } : {} });
       if (!res.ok) return showPreviewError(res.status);
       const payload = yield res.json();
@@ -3686,6 +3724,9 @@ function connect(serverUrl) {
     config.deviceId = data.device_id;
     if (data.device_token) config.deviceToken = data.device_token;
     saveConfig(config);
+    refreshPrivateMedia().catch(function() {
+      console.warn("[media] session unavailable; cached content retained");
+    });
     console.log("Registered:", data.device_id);
     flushOfflinePlays();
     if (typeof maybeFetchAudioGuide === "function") maybeFetchAudioGuide();
@@ -5757,6 +5798,13 @@ function takeFxRun(data) {
 }
 function handlePlaylistUpdate(data) {
   var _a;
+  if (!VIEWER_MODE && !PREVIEW_MODE && !privateMediaReady) {
+    privateMediaPayload = data;
+    refreshPrivateMedia().catch(function() {
+      console.warn("[media] waiting for an authorized media session");
+    });
+    return;
+  }
   if (data && data.suspended) {
     try {
       if (kiosk && kiosk.isShowing()) kiosk.hide();
@@ -8074,7 +8122,7 @@ function showZoneItem(zone, div, items, index, timers = zoneTimers) {
       );
     }
     host.appendChild(iframe);
-    fetch(bundleUrl, { credentials: "omit" }).then((r) => r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status))).then((html) => {
+    fetch(bundleUrl, { credentials: "same-origin" }).then((r) => r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status))).then((html) => {
       if (iframe.isConnected !== false) iframe.srcdoc = html;
     }).catch(() => {
       if (iframe.isConnected !== false) iframe.src = bundleUrl;

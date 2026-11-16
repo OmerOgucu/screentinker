@@ -34,7 +34,9 @@ before(async () => {
   const logFd = fs.openSync(LOG, 'w');
   proc = spawn('node', ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, DATA_DIR, SELF_HOSTED: 'true', PORT: String(PORT), NODE_ENV: 'test' },
+    // This fixture simulates a reverse proxy supplying several client addresses.
+    // A loopback peer is no longer trusted implicitly by production defaults.
+    env: { ...process.env, DATA_DIR, SELF_HOSTED: 'true', PORT: String(PORT), NODE_ENV: 'test', TRUSTED_PROXY_CIDRS: '127.0.0.1/32' },
     stdio: ['ignore', logFd, logFd],
   });
   let up = false;
