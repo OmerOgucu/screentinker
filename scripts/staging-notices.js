@@ -10,7 +10,8 @@ for(const dir of listing.trim().split('\n')){
  let pkg;try{pkg=JSON.parse(fs.readFileSync(path.join(dir,'package.json'),'utf8'));}catch{continue;}
  const key=pkg.name+'@'+pkg.version;if(seen.has(key))continue;seen.add(key);
  const files=fs.readdirSync(dir).filter(n=>/^(LICEN[CS]E|NOTICE|COPYING)([.-].*)?$/i.test(n)&&fs.statSync(path.join(dir,n)).isFile());
- const license=typeof pkg.license==='string'?pkg.license:pkg.license?.type||null;
+ if(dir===server)for(const n of ['../LICENSE','../NOTICE'])if(fs.existsSync(path.join(dir,n)))files.push(n);
+ const license=typeof pkg.license==='string'?pkg.license:pkg.license?.type||(Array.isArray(pkg.licenses)?pkg.licenses.map(x=>x.type||x).join(' OR '):null);
  const category=/AGPL/i.test(license||'')?'AGPL':/LGPL/i.test(license||'')?'LGPL':/(^|[^L])GPL/i.test(license||'')?'GPL':/MIT/.test(license||'')?'MIT':license?'OTHER':'UNRESOLVED';
  inventory.push({name:pkg.name,version:pkg.version,license,category,noticeFiles:files});
  parts.push('\n'+'='.repeat(72)+'\n'+key+'\nDeclared license: '+(license||'not declared'));

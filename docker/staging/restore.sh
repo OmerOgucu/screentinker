@@ -11,6 +11,8 @@ test "$(docker inspect --format '{{.State.Running}}' "$cid")" = false || { echo 
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$cid" | grep -qx 'DEPLOYMENT_PROFILE=saas-staging' || exit 1
 volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$cid")
 image=$(cat "$backup/image-id.txt")
+printf '%s\n' "$image" | grep -Eq '^sha256:[a-f0-9]{64}$' || { echo 'Invalid backup image ID' >&2; exit 1; }
+test "$(docker inspect --format '{{.Image}}' "$cid")" = "$image" || { echo 'Restore target must use the exact backup image' >&2; exit 1; }
 test -n "$volume"
 docker run --rm --network none --read-only --cap-drop ALL --user 1000:1000 --entrypoint sh --mount "type=volume,src=$volume,dst=/data" "$image" -c 'test -z "$(find /data -mindepth 1 -print -quit)"' || { echo 'Refusing a nonempty data volume' >&2; exit 1; }
 docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 1000:1000 --entrypoint tar --mount "type=volume,src=$volume,dst=/data" --mount "type=bind,src=$backup,dst=/backup,readonly" "$image" --no-same-owner -xzpf /backup/data.tar.gz -C /data
